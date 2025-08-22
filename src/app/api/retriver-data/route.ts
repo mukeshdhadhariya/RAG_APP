@@ -145,13 +145,129 @@
 
 
 
+// import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+// import { QdrantVectorStore } from "@langchain/qdrant";
+// import { embeddings } from "@/helper/embeddings";
+// import { NextRequest, NextResponse } from "next/server";
+
+
+// export const runtime = "nodejs";
+// export async function GET(req: NextRequest) {
+//   try {
+//     const { searchParams } = new URL(req.url);
+//     const userQuery = searchParams.get("input");
+
+//     if (!userQuery) {
+//       return NextResponse.json(
+//         { success: false, error: "Missing 'input' query parameter" },
+//         { status: 400 }
+//       );
+//     }
+
+//     // Connect to Qdrant
+//     const vectorStore = await QdrantVectorStore.fromExistingCollection(
+//       embeddings,
+//       {
+//         url: process.env.END_POINT,
+//         apiKey: process.env.QDRANT_API_KEY,
+//         collectionName: "langchainjs-testing",
+//       }
+//     );
+
+//     const retriever = vectorStore.asRetriever({ k: 2 });
+//     const result = await retriever.invoke(userQuery);
+
+//     const SYSTEM_PROMPT = `You are a helpful AI assistant. 
+// Always answer the user query based ONLY on the provided PDF context. 
+// Context: ${JSON.stringify(result)} 
+
+// Guidelines:
+// - Give short but detailed answers (concise sentences, no unnecessary words).  
+// - If the answer is not present in the context, say clearly: "The answer is not available in the provided PDF." 
+// - Never make up information outside the context.`;
+
+//     // Use LangChain’s Chat wrapper
+//     const llm = new ChatGoogleGenerativeAI({
+//       model: "gemini-2.5-flash",
+//       apiKey: process.env.GOOGLE_API_KEY,
+//       temperature: 0.2,
+//     });
+
+//     const chatResult = await llm.invoke([
+//       {
+//         role: "user",
+//         content: `${SYSTEM_PROMPT}\n\nUser: ${userQuery}`,
+//       },
+//     ]);
+
+//     // Extract text safely
+//     const responseText =
+//       typeof chatResult.content === "string"
+//         ? chatResult.content
+//         : Array.isArray(chatResult.content)
+//         ? chatResult.content.map((c: any) => c.text).join(" ")
+//         : "No response from model";
+
+//     // Extract sources
+//     const sources = result.map((d: any) => ({
+//       title:
+//         d.metadata?.title ||
+//         d.metadata?.url ||
+//         d.metadata?.source ||
+//         "Source",
+//       url: d.metadata?.url || null,
+//     }));
+
+//     return NextResponse.json({
+//       success: true,
+//       data: sources,
+//       message: responseText,
+//     });
+//   } catch (error) {
+//     console.error("Error in GET /api/retriver-data:", error);
+//     return NextResponse.json(
+//       {
+//         success: false,
+//         error: error instanceof Error ? error.message : "Unknown server error",
+//       },
+//       { status: 500 }
+//     );
+//   }
+// }
+
+
+
+
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { QdrantVectorStore } from "@langchain/qdrant";
 import { embeddings } from "@/helper/embeddings";
 import { NextRequest, NextResponse } from "next/server";
+import { Document } from "@langchain/core/documents";
 
+// Define interfaces for type safety
+interface DocumentMetadata {
+  title?: string;
+  url?: string;
+  source?: string;
+  [key: string]: unknown; // Allow for other metadata properties
+}
+
+interface RetrievedDocument extends Document {
+  metadata: DocumentMetadata;
+}
+
+interface SourceInfo {
+  title: string;
+  url: string | null;
+}
+
+interface ChatContentBlock {
+  text?: string;
+  [key: string]: unknown;
+}
 
 export const runtime = "nodejs";
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -186,7 +302,7 @@ Guidelines:
 - If the answer is not present in the context, say clearly: "The answer is not available in the provided PDF." 
 - Never make up information outside the context.`;
 
-    // Use LangChain’s Chat wrapper
+    // Use LangChain's Chat wrapper
     const llm = new ChatGoogleGenerativeAI({
       model: "gemini-2.5-flash",
       apiKey: process.env.GOOGLE_API_KEY,
@@ -200,16 +316,11 @@ Guidelines:
       },
     ]);
 
-    // Extract text safely
-    const responseText =
-      typeof chatResult.content === "string"
-        ? chatResult.content
-        : Array.isArray(chatResult.content)
-        ? chatResult.content.map((c: any) => c.text).join(" ")
-        : "No response from model";
+    // Extract text safely with proper typing
+    const responseText = extractResponseText(chatResult.content);
 
-    // Extract sources
-    const sources = result.map((d: any) => ({
+    // Extract sources with proper typing
+    const sources: SourceInfo[] = result.map((d: RetrievedDocument) => ({
       title:
         d.metadata?.title ||
         d.metadata?.url ||
@@ -233,4 +344,25 @@ Guidelines:
       { status: 500 }
     );
   }
+}
+
+// Helper function to extract response text with proper typing
+function extractResponseText(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  
+  if (Array.isArray(content)) {
+    return content
+      .map((block: unknown) => {
+        if (typeof block === "object" && block !== null && "text" in block) {
+          return (block as ChatContentBlock).text || "";
+        }
+        return "";
+      })
+      .join(" ")
+      .trim();
+  }
+  
+  return "No response from model";
 }
