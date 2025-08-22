@@ -4,6 +4,8 @@ import { QdrantVectorStore } from "@langchain/qdrant";
 import { embeddings } from "@/helper/embeddings";
 import { NextRequest, NextResponse } from "next/server";
 
+
+export const runtime = "nodejs";
 export async function POST(req:NextRequest){
     try {
         const formData = await req.formData();

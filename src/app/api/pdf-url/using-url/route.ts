@@ -6,6 +6,7 @@ import { QdrantVectorStore } from "@langchain/qdrant";
 import { Document } from "@langchain/core/documents";
 import { embeddings } from "@/helper/embeddings";
 
+
 export interface PageMetadata {
   source: string;   // e.g. "url", "pdf"
   title: string;    // Page title
@@ -19,6 +20,8 @@ export interface ChunkedDocument {
     totalChunks: number;
   };
 }
+
+export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   const { url } = await req.json();
