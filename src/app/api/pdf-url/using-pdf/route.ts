@@ -77,7 +77,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const loader = new PDFLoader(file);
+    const bytes = Buffer.from(await file.arrayBuffer());
+    const loader = new PDFLoader(new Blob([bytes]));
+    // const loader = new PDFLoader(file);
     const docs = await loader.load();
     
     if (!docs.length) {
