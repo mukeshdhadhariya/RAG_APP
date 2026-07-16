@@ -61,6 +61,7 @@ import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import { CharacterTextSplitter } from "@langchain/textsplitters";
 import { QdrantVectorStore } from "@langchain/qdrant";
 import { embeddings } from "@/helper/embeddings";
+import { createQdrantClient } from "@/helper/qdrant";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -99,8 +100,7 @@ export async function POST(req: NextRequest) {
     const vectorStore = await QdrantVectorStore.fromExistingCollection(
       embeddings,
       {
-        url: process.env.END_POINT,
-        apiKey: process.env.QDRANT_API_KEY,
+        client: createQdrantClient(),
         collectionName: "langchainjs-testing",
       }
     );

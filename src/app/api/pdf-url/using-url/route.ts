@@ -5,6 +5,7 @@ import { CharacterTextSplitter } from "@langchain/textsplitters";
 import { QdrantVectorStore } from "@langchain/qdrant";
 import { Document } from "@langchain/core/documents";
 import { embeddings } from "@/helper/embeddings";
+import { createQdrantClient } from "@/helper/qdrant";
 
 
 export interface PageMetadata {
@@ -118,8 +119,7 @@ export async function POST(req: NextRequest) {
   }
 
   const vectorStore = await QdrantVectorStore.fromExistingCollection(embeddings, {
-    url: process.env.END_POINT,
-    apiKey: process.env.QDRANT_API_KEY,
+    client: createQdrantClient(),
     collectionName: "langchainjs-testing",
   });
 
