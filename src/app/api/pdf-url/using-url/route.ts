@@ -6,6 +6,7 @@ import { QdrantVectorStore } from "@langchain/qdrant";
 import { Document } from "@langchain/core/documents";
 import { embeddings } from "@/helper/embeddings";
 import { createQdrantClient } from "@/helper/qdrant";
+import { indexDocumentsInElastic } from "@/helper/elasticsearch";
 
 
 export interface PageMetadata {
@@ -124,6 +125,16 @@ export async function POST(req: NextRequest) {
   });
 
   await vectorStore.addDocuments(
+    out.map(
+      (d) =>
+        new Document({
+          pageContent: d.pageContent,
+          metadata: d.metadata,
+        })
+    )
+  );
+
+  await indexDocumentsInElastic(
     out.map(
       (d) =>
         new Document({

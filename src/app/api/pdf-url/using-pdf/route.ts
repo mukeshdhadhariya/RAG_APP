@@ -62,6 +62,7 @@ import { CharacterTextSplitter } from "@langchain/textsplitters";
 import { QdrantVectorStore } from "@langchain/qdrant";
 import { embeddings } from "@/helper/embeddings";
 import { createQdrantClient } from "@/helper/qdrant";
+import { indexDocumentsInElastic } from "@/helper/elasticsearch";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -106,6 +107,7 @@ export async function POST(req: NextRequest) {
     );
 
     await vectorStore.addDocuments(docsChunks);
+    await indexDocumentsInElastic(docsChunks);
 
     return NextResponse.json(
       {

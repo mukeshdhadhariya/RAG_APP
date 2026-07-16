@@ -242,6 +242,7 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { QdrantVectorStore } from "@langchain/qdrant";
 import { embeddings } from "@/helper/embeddings";
 import { createQdrantClient } from "@/helper/qdrant";
+import { searchDocumentsInElastic } from "@/helper/elasticsearch";
 import { NextRequest, NextResponse } from "next/server";
 import { Document } from "@langchain/core/documents";
 
@@ -267,6 +268,12 @@ interface ChatContentBlock {
   [key: string]: unknown;
 }
 
+interface RetrievalCandidate {
+  document: RetrievedDocument;
+  vectorScore: number;
+  bm25Score: number;
+}
+
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
@@ -290,8 +297,12 @@ export async function GET(req: NextRequest) {
       }
     );
 
-    const retriever = vectorStore.asRetriever({ k: 2 });
-    const result = await retriever.invoke(userQuery);
+    const [vectorResults, bm25Results] = await Promise.all([
+      vectorStore.similaritySearchWithScore(userQuery, 6),
+      searchDocumentsInElastic(userQuery, 8),
+    ]);
+
+    const result = rerankRetrievalCandidates(userQuery, vectorResults, bm25Results, 4);
 
     const SYSTEM_PROMPT = `You are a helpful AI assistant. 
 Always answer the user query based ONLY on the provided PDF context. 
@@ -366,3 +377,116 @@ function extractResponseText(content: unknown): string {
   
   return "No response from model";
 }
+
+function rerankRetrievalCandidates(
+  query: string,
+  vectorResults: [Document, number][],
+  bm25Results: { document: Document; score: number }[],
+  limit: number
+) {
+  const queryTokens = tokenizeQuery(query);
+  const maxVectorScore = Math.max(...vectorResults.map(([, score]) => score), 1);
+  const maxBm25Score = Math.max(...bm25Results.map((item) => item.score), 1);
+
+  const candidateMap = new Map<string, RetrievalCandidate>();
+
+  for (const [document, score] of vectorResults) {
+    const fingerprint = getDocumentFingerprint(document);
+    candidateMap.set(fingerprint, {
+      document: document as RetrievedDocument,
+      vectorScore: score,
+      bm25Score: candidateMap.get(fingerprint)?.bm25Score ?? 0,
+    });
+  }
+
+  for (const item of bm25Results) {
+    const fingerprint = getDocumentFingerprint(item.document);
+    const existing = candidateMap.get(fingerprint);
+    candidateMap.set(fingerprint, {
+      document: item.document as RetrievedDocument,
+      vectorScore: existing?.vectorScore ?? 0,
+      bm25Score: item.score,
+    });
+  }
+
+  return [...candidateMap.values()]
+    .map((candidate) => {
+      const content = candidate.document.pageContent ?? "";
+      const metadata = candidate.document.metadata ?? {};
+      const lexicalScore = scoreLexicalOverlap(queryTokens, content, metadata);
+      const normalizedVectorScore = candidate.vectorScore / maxVectorScore;
+      const normalizedBm25Score = candidate.bm25Score / maxBm25Score;
+
+      return {
+        ...candidate.document,
+        metadata: {
+          ...metadata,
+          vectorScore: candidate.vectorScore,
+          bm25Score: candidate.bm25Score,
+          rerankScore:
+            normalizedBm25Score * 0.55 + normalizedVectorScore * 0.35 + lexicalScore * 0.1,
+        },
+      } as RetrievedDocument;
+    })
+    .sort((left, right) => {
+      const leftScore = Number(left.metadata?.rerankScore ?? 0);
+      const rightScore = Number(right.metadata?.rerankScore ?? 0);
+      return rightScore - leftScore;
+    })
+    .slice(0, limit);
+}
+
+function getDocumentFingerprint(document: Document) {
+  const metadata = (document.metadata ?? {}) as Record<string, unknown>;
+  return [document.pageContent, metadata.url ?? metadata.title ?? metadata.source ?? ""]
+    .join("::")
+    .trim();
+}
+
+function tokenizeQuery(query: string) {
+  return query
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 2 && !STOPWORDS.has(token));
+}
+
+function scoreLexicalOverlap(
+  queryTokens: string[],
+  content: string,
+  metadata: Record<string, unknown>
+) {
+  if (!queryTokens.length) {
+    return 0;
+  }
+
+  const haystack = `${content} ${metadata.title ?? ""} ${metadata.source ?? ""} ${metadata.url ?? ""}`.toLowerCase();
+  const matches = queryTokens.filter((token) => haystack.includes(token)).length;
+  return matches / queryTokens.length;
+}
+
+const STOPWORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "that",
+  "this",
+  "from",
+  "your",
+  "what",
+  "about",
+  "into",
+  "then",
+  "when",
+  "where",
+  "how",
+  "why",
+  "can",
+  "you",
+  "are",
+  "was",
+  "were",
+  "have",
+  "has",
+  "had",
+]);
