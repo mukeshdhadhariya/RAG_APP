@@ -23,6 +23,10 @@ export const metadata: Metadata = {
   description:
     "A Retrieval-Augmented Generation platform combining intelligent document retrieval with AI-powered generation for accurate, context-aware answers.",
 
+  icons: {
+    icon: [{ url: "/image.png", sizes: "512x512", type: "image/png" }],
+  },
+
   keywords: [
     "RAG",
     "Retrieval Augmented Generation",
